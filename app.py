@@ -2,14 +2,14 @@ import streamlit as st
 from PIL import Image
 import os
 import json
-import uuid
+import hashlib
 
-# 保存フォルダとファイル
+# === 設定 ===
 SCENE_FOLDER = "scenes"
 MANUAL_FILE = "saved_manual.json"
 os.makedirs(SCENE_FOLDER, exist_ok=True)
 
-# マニュアルデータの読み込み/保存
+# === マニュアルデータの読み込みと保存 ===
 def load_manual():
     if os.path.exists(MANUAL_FILE):
         with open(MANUAL_FILE, "r", encoding="utf-8") as f:
@@ -20,33 +20,45 @@ def save_manual(data):
     with open(MANUAL_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-# デモ用：自動説明文を模擬生成（本来はBLIP2 + ChatGPT）
-def mock_ai_generate_description(image_name):
-    return f"{image_name} に基づいて生成された説明文です。"
+# === ハッシュ生成：画像の内容から一意のIDを作る ===
+def get_image_hash(image_bytes):
+    return hashlib.md5(image_bytes).hexdigest()
 
-# Streamlit UI
+# === シーン画像一覧 ===
+def get_scene_images():
+    return sorted([f for f in os.listdir(SCENE_FOLDER) if f.endswith(".png")])
+
+# === アプリ開始 ===
 st.set_page_config("半自動マニュアル生成システム", layout="wide")
-st.title("📘 半自動マニュアル生成システム（プロトタイプ）")
+st.title("📘 半自動マニュアル生成システム（重複排除版）")
 
-# アップロードされた画像を保存（本来は動画分割による抽出）
-uploaded = st.file_uploader("シーン画像（1枚ずつ）をアップロード", type=["png", "jpg", "jpeg"])
+# === 画像アップロードと重複判定 ===
+uploaded = st.file_uploader("シーン画像をアップロード（重複画像は保存されません）", type=["png", "jpg", "jpeg"])
 if uploaded:
-    image_id = str(uuid.uuid4())[:8]
-    image_path = os.path.join(SCENE_FOLDER, f"{image_id}.png")
-    with open(image_path, "wb") as f:
-        f.write(uploaded.getbuffer())
-    st.success("画像を保存しました ✅")
+    image_bytes = uploaded.getvalue()
+    image_hash = get_image_hash(image_bytes)
+    image_filename = f"{image_hash}.png"
+    image_path = os.path.join(SCENE_FOLDER, image_filename)
 
-# 編集モード
+    if os.path.exists(image_path):
+        st.warning("⚠️ この画像はすでに登録されています。")
+    else:
+        with open(image_path, "wb") as f:
+            f.write(image_bytes)
+        st.success("✅ 画像を保存しました。")
+
+# === マニュアルデータ読み込み ===
 manual_data = load_manual()
+
 st.markdown("---")
 st.subheader("🧩 ステップ編集・登録")
 
-scene_images = [f for f in os.listdir(SCENE_FOLDER) if f.endswith(".png")]
+# === ステップごとに画像と説明を表示・登録 ===
+for filename in get_scene_images():
+    img_path = os.path.join(SCENE_FOLDER, filename)
+    st.image(img_path, width=400, caption=filename)
 
-for filename in sorted(scene_images):
-    st.image(os.path.join(SCENE_FOLDER, filename), width=400, caption=filename)
-    default_text = mock_ai_generate_description(filename)
+    default_text = f"{filename} に基づいて生成された説明文です。"
     edited_text = st.text_area(f"説明文（編集可）：{filename}", value=default_text, key=filename)
 
     if st.button(f"このステップを登録", key="btn_"+filename):
